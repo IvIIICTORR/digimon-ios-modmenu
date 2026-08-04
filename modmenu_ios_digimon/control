@@ -1,0 +1,9 @@
+Package: com.giyutmk.digimonmenu
+Name: Digimon Mod Menu
+Depends: mobilesubstrate
+Version: 1.0
+Architecture: iphoneos-arm
+Description: Menu ImGui para ligar/desligar os cheats do Digimon (sem jailbreak)
+Maintainer: GiyuTMK
+Author: GiyuTMK
+Section: Tweaks

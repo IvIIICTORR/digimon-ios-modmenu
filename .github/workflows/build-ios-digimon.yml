@@ -1,0 +1,94 @@
+name: Build Digimon iOS Mod Menu
+
+# Compila o tweak no runner macOS do GitHub (nao precisa de Mac local).
+# Estrategia: clonar o template Komaru (que traz ImGui + Titanox), sobrepor os
+# NOSSOS arquivos e compilar. Assim nao versionamos ImGui/Titanox no repo.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'modmenu_ios_digimon/**'
+      - '.github/workflows/build-ios-digimon.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      PROJ: modmenu_ios_digimon
+      UPSTREAM: https://github.com/VenerableCode/iOS-Theos-ModMenuTemp-NoJB.git
+      TWEAK: DigimonMenu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias
+        run: brew install ldid dpkg make || true
+
+      - name: Instalar Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+
+      - name: Instalar SDK do iOS
+        run: |
+          git clone --depth 1 https://github.com/theos/sdks.git /tmp/sdks
+          cp -r /tmp/sdks/*.sdk "$THEOS/sdks/" || true
+          ls "$THEOS/sdks/"
+
+      - name: Baixar template (ImGui + Titanox)
+        run: |
+          git clone --depth 1 "$UPSTREAM" /tmp/tpl
+          # infra do template -> nosso projeto
+          cp -r /tmp/tpl/ImGui      "$PROJ/"
+          cp -r /tmp/tpl/utils      "$PROJ/"
+          cp -r /tmp/tpl/MenuLoad   /tmp/menuload_tpl
+          cp -r /tmp/tpl/Source     /tmp/source_tpl
+          cp    /tmp/tpl/Font.h     "$PROJ/"
+          # arquivos do template que NAO temos, sem sobrescrever os nossos
+          mkdir -p "$PROJ/MenuLoad" "$PROJ/Source"
+          for f in /tmp/menuload_tpl/*; do
+            b=$(basename "$f")
+            [ -e "$PROJ/MenuLoad/$b" ] || cp -r "$f" "$PROJ/MenuLoad/$b"
+          done
+          for f in /tmp/source_tpl/*; do
+            b=$(basename "$f")
+            [ -e "$PROJ/Source/$b" ] || cp -r "$f" "$PROJ/Source/$b"
+          done
+          echo "--- arvore do projeto ---"
+          ls -la "$PROJ" "$PROJ/MenuLoad" "$PROJ/Source"
+
+      - name: Compilar
+        run: |
+          cd "$PROJ"
+          make clean || true
+          make package FINALPACKAGE=1 THEOS="$THEOS" 2>&1 | tee /tmp/build.log
+
+      - name: Extrair o .dylib do .deb
+        run: |
+          cd "$PROJ"
+          mkdir -p out
+          DEB=$(ls packages/*.deb | head -n1)
+          echo "deb: $DEB"
+          dpkg-deb -x "$DEB" _extract
+          find _extract -name '*.dylib' -print -exec cp {} out/ \;
+          find _extract -name '*.plist' -print -exec cp {} out/ \;
+          cp "$DEB" out/
+          ls -la out/
+
+      - name: Conferir que o dylib e Mach-O arm64
+        run: |
+          cd "$PROJ/out"
+          for f in *.dylib; do
+            echo "== $f"
+            file "$f"
+            otool -h "$f" | head -5 || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: digimon-modmenu
+          path: |
+            ${{ env.PROJ }}/out/*
+            /tmp/build.log
+          if-no-files-found: warn
