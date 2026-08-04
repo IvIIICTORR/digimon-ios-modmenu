@@ -38,12 +38,12 @@ static void FeatureCheckbox(DgFeature f)
     bool valido = [DigimonPatches valida:f] ? true : false;
 
     if (!valido) {
-        ImGui::BeginDisabled();
-        bool falso = false;
-        ImGui::Checkbox(nome, &falso);
-        ImGui::EndDisabled();
+        // Alvo invalido: mostra como texto, nao como checkbox clicavel.
+        // (Nao usar ImGui::BeginDisabled/EndDisabled: nao existem na versao de
+        // ImGui que vem no template.)
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[x] %s", nome);
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "(nao validado)");
+        ImGui::TextDisabled("(nao validado)");
         return;
     }
 
