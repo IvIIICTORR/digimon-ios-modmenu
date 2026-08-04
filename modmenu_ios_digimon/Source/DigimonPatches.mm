@@ -4,9 +4,21 @@
 
 #import "DigimonPatches.h"
 #import "../utils/libtitanox/libtitanox/libtitanox.h"
+#import "../utils/libtitanox/utils/utils.h"   // THLog (funcao C, varargs corretos)
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
+
+// ---------------------------------------------------------------------------
+// LOG: usar SEMPRE a funcao C THLog(...), NUNCA [TitanoxHook log:...].
+//
+// O wrapper +[TitanoxHook log:] do template repassa um va_list como se fosse o
+// primeiro argumento variadico de THLog (bug de encaminhamento de varargs).
+// Com qualquer especificador que dereferencia ponteiro (%s, %@) ele le um
+// ponteiro invalido e da SIGSEGV. A funcao C THLog trata os varargs certo.
+// Este era o motivo de o jogo fechar ao abrir o menu.
+// ---------------------------------------------------------------------------
+#define DGLOG(...) THLog(__VA_ARGS__)
 
 // ---------------------------------------------------------------------------
 // Tabela de alvos.
@@ -90,6 +102,7 @@ static uint64_t g_base = 0;
 static BOOL g_ligada[DG_TOTAL] = {NO};
 static BOOL g_valida[DG_TOTAL] = {NO};
 static BOOL g_escritaOk = NO;
+static BOOL g_iniciado  = NO;
 static NSString *g_erro = nil;
 
 @implementation DigimonPatches
@@ -112,12 +125,22 @@ static NSString *g_erro = nil;
 + (BOOL)escritaSuportada { return g_escritaOk; }
 
 + (void)inicializar {
-    g_base = [TitanoxHook getBaseAddressOfLibrary:DG_IMAGE_NAME];
-    [TitanoxHook log:@"[DG] base de %s = 0x%llx", DG_IMAGE_NAME, g_base];
+    if (g_iniciado) return;      // roda uma unica vez
+    g_iniciado = YES;
+
+    DGLOG(@"[DG] inicializar: comecou");
+
+    @try {
+        g_base = [TitanoxHook getBaseAddressOfLibrary:DG_IMAGE_NAME];
+    } @catch (NSException *e) {
+        g_base = 0;
+        DGLOG(@"[DG] excecao ao obter base: %@", e.reason);
+    }
+    DGLOG(@"[DG] base de %s = 0x%llx", DG_IMAGE_NAME, (unsigned long long)g_base);
 
     if (g_base == 0) {
         g_erro = @"UnityFramework nao encontrado no processo";
-        [TitanoxHook log:@"[DG] ERRO: %@", g_erro];
+        DGLOG(@"[DG] ERRO: %@", g_erro);
         return;
     }
 
@@ -127,9 +150,19 @@ static NSString *g_erro = nil;
         uint8_t atual[48] = {0};
         mach_vm_address_t addr = (mach_vm_address_t)(g_base + a->rva);
 
-        if (![TitanoxHook readMemoryAt:addr buffer:atual size:a->tam]) {
-            [TitanoxHook log:@"[DG] %s: leitura FALHOU em 0x%llx", a->nome,
-                             (unsigned long long)addr];
+        DGLOG(@"[DG] [%d/%d] lendo %s em 0x%llx (%zu bytes)",
+              i + 1, (int)DG_TOTAL, a->nome, (unsigned long long)addr, a->tam);
+
+        BOOL leu = NO;
+        @try {
+            leu = [TitanoxHook readMemoryAt:addr buffer:atual size:a->tam];
+        } @catch (NSException *e) {
+            DGLOG(@"[DG] %s: excecao na leitura: %@", a->nome, e.reason);
+            leu = NO;
+        }
+
+        if (!leu) {
+            DGLOG(@"[DG] %s: leitura FALHOU em 0x%llx", a->nome, (unsigned long long)addr);
             continue;
         }
 
@@ -140,30 +173,30 @@ static NSString *g_erro = nil;
             g_valida[i] = YES;
             g_ligada[i] = YES;
             validos++;
-            [TitanoxHook log:@"[DG] %s: OK (estado inicial LIGADO)", a->nome];
+            DGLOG(@"[DG] %s: OK (estado inicial LIGADO)", a->nome);
         } else if (memcmp(atual, a->original, a->tam) == 0) {
             g_valida[i] = YES;
             g_ligada[i] = NO;
             validos++;
-            [TitanoxHook log:@"[DG] %s: OK (estado inicial DESLIGADO)", a->nome];
+            DGLOG(@"[DG] %s: OK (estado inicial DESLIGADO)", a->nome);
         } else {
             g_valida[i] = NO;
-            [TitanoxHook log:@"[DG] %s: bytes DESCONHECIDOS em 0x%llx - alvo "
-                              @"desabilitado (versao do jogo diferente?)",
-                             a->nome, (unsigned long long)addr];
+            DGLOG(@"[DG] %s: bytes DESCONHECIDOS em 0x%llx - alvo desabilitado "
+                  @"(versao do jogo diferente?)", a->nome, (unsigned long long)addr);
         }
     }
 
-    [TitanoxHook log:@"[DG] alvos validos: %d de %d", validos, (int)DG_TOTAL];
+    DGLOG(@"[DG] alvos validos: %d de %d", validos, (int)DG_TOTAL);
     if (validos == 0) {
         g_erro = @"nenhum alvo validou - versao do jogo diferente do dump";
     }
+    DGLOG(@"[DG] inicializar: terminou");
 }
 
 + (BOOL)definir:(DgFeature)f ligada:(BOOL)ligar {
     if (f < 0 || f >= DG_TOTAL) return NO;
     if (!g_valida[f]) {
-        [TitanoxHook log:@"[DG] %s: ignorado (alvo invalido)", g_alvos[f].nome];
+        DGLOG(@"[DG] %s: ignorado (alvo invalido)", g_alvos[f].nome);
         return NO;
     }
     if (g_base == 0) return NO;
@@ -180,7 +213,7 @@ static NSString *g_erro = nil;
                                              setMax:NO
                                          protection:(VM_PROT_READ | VM_PROT_WRITE)];
     if (kr != KERN_SUCCESS) {
-        [TitanoxHook log:@"[DG] %s: protect(RW) falhou kr=%d", a->nome, kr];
+        DGLOG(@"[DG] %s: protect(RW) falhou kr=%d", a->nome, kr);
         g_erro = [NSString stringWithFormat:@"vm_protect recusado (kr=%d)", kr];
         return NO;
     }
@@ -193,7 +226,7 @@ static NSString *g_erro = nil;
                                               setMax:NO
                                           protection:(VM_PROT_READ | VM_PROT_EXECUTE)];
     if (kr2 != KERN_SUCCESS) {
-        [TitanoxHook log:@"[DG] %s: protect(RX) de volta falhou kr=%d", a->nome, kr2];
+        DGLOG(@"[DG] %s: protect(RX) de volta falhou kr=%d", a->nome, kr2);
     }
 
     // NAO confiar na escrita: reler e comparar. Se nao bateu, o toggle nao valeu.
@@ -202,11 +235,11 @@ static NSString *g_erro = nil;
         memcmp(conferido, dados, a->tam) == 0) {
         g_ligada[f] = ligar;
         g_escritaOk = YES;
-        [TitanoxHook log:@"[DG] %s: agora %@", a->nome, ligar ? @"LIGADO" : @"DESLIGADO"];
+        DGLOG(@"[DG] %s: agora %s", a->nome, ligar ? "LIGADO" : "DESLIGADO");
         return YES;
     }
 
-    [TitanoxHook log:@"[DG] %s: escrita NAO confirmada na releitura", a->nome];
+    DGLOG(@"[DG] %s: escrita NAO confirmada na releitura", a->nome);
     g_erro = @"escrita em memoria de codigo nao confirmada";
     return NO;
 }
@@ -216,7 +249,7 @@ static NSString *g_erro = nil;
     for (int i = 0; i < DG_TOTAL; i++) if (g_valida[i]) validos++;
     return [NSString stringWithFormat:
             @"base 0x%llx | alvos %d/%d | escrita: %@%@",
-            g_base, validos, (int)DG_TOTAL,
+            (unsigned long long)g_base, validos, (int)DG_TOTAL,
             g_escritaOk ? @"OK" : @"nao testada",
             g_erro ? [@" | " stringByAppendingString:g_erro] : @""];
 }

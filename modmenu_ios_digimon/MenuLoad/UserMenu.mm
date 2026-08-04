@@ -72,7 +72,10 @@ void UserMenu::DrawMenu()
         ? ImGuiWindowFlags_NoCollapse
         : ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 
-    if (ImGui::Begin("Digimon Mod", NULL, WindowFlags))
+    // ImGui exige End() sempre, mesmo quando Begin() retorna false. Com -DNDEBUG
+    // o assert some e a pilha de janelas corrompe -> crash depois no Render().
+    bool janelaAberta = ImGui::Begin("Digimon Mod", NULL, WindowFlags);
+    if (janelaAberta)
     {
         ImGuiWindow* CurrentWindow = ImGui::GetCurrentWindow();
         KTempVars.MenuSize   = CurrentWindow->Size;
@@ -113,7 +116,7 @@ void UserMenu::DrawMenu()
                 ImGui::TextDisabled("mexa num toggle para testar a escrita");
             }
             ImGui::Spacing();
-            ImGui::TextDisabled("log: Documents/TITANOX_LOGS.TXT");
+            ImGui::TextDisabled("log: Documents/TITANOX_LOGS.txt");
 
             if (ImGui::Button("Ligar tudo")) {
                 for (int i = 0; i < DG_TOTAL; i++) {
@@ -138,9 +141,8 @@ void UserMenu::DrawMenu()
 
         ImGui::Spacing();
         ImGui::Checkbox("Mover menu", &KTempVars.MoveMenu);
-
-        ImGui::End();
     }
+    ImGui::End();   // sempre, pareado com o Begin acima
 }
 
 void UserMenu::RenderingMenu()

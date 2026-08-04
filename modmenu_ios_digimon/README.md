@@ -72,7 +72,7 @@ e nunca deixar falha silenciosa sem mensagem).
    Se não bateu, o estado interno não muda e o checkbox volta ao valor real —
    um checkbox não pode mentir sobre o estado.
 3. **Restaura a proteção** da página para R-X depois de escrever.
-4. **Log de tudo** em `Documents/TITANOX_LOGS.TXT` (base, kr do vm_protect,
+4. **Log de tudo** em `Documents/TITANOX_LOGS.txt` (base, kr do vm_protect,
    resultado de cada toggle).
 5. **Aba DIAGNÓSTICO** no menu, mostrando base, alvos válidos e se a escrita
    funcionou.
@@ -134,7 +134,8 @@ Titanox **não** são versionados aqui.
 1. Sideloadly → arrastar o **IPA já patchado**
    (`...-Decrypted-MOD.ipa`).
 2. **Advanced options → inject dylib** → `DigimonMenu.dylib`.
-3. Instalar e abrir. Gesto do template: **3 dedos, 2 toques** abre o menu.
+3. Instalar e abrir. O template mostra um **ícone flutuante** ~3s após abrir;
+   tocar nele abre/fecha o menu.
 
 ---
 
@@ -161,4 +162,20 @@ forma. A prova é o toggle mudar o comportamento em jogo.
    ao normal e o inimigo deve machucar.
 3. Religar e conferir que volta a matar em um golpe.
 4. Repetir com **Velocidade** (o efeito é imediato, sem precisar de combate).
-5. Se algo não mudar, puxar `Documents/TITANOX_LOGS.TXT`.
+5. Se algo não mudar, puxar `Documents/TITANOX_LOGS.txt`.
+
+### Correção de crash (jul/2026)
+
+Sintoma: o ícone aparecia, mas tocar nele para abrir o menu fechava o jogo.
+
+Causa: o wrapper `+[TitanoxHook log:]` do template repassa um `va_list` como se
+fosse o primeiro argumento variádico de `THLog(NSString*, ...)`. Com `%s`/`%@`
+isso dereferencia um ponteiro inválido e dá SIGSEGV. Nosso `inicializar` usava
+esse wrapper com `%s` logo na primeira linha, então o crash acontecia no primeiro
+desenho do menu. O código interno do Titanox nunca usa esse wrapper — chama a
+função C `THLog(...)` direto.
+
+Correção: `DigimonPatches.mm` agora chama `THLog(...)` direto (varargs corretos),
+o `inicializar` roda uma única vez e está protegido por `@try/@catch`, e o
+`DrawMenu` chama `ImGui::End()` sempre (pareado com `Begin`, senão com `-DNDEBUG`
+a pilha de janelas corrompe).
