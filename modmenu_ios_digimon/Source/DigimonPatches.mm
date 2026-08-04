@@ -8,6 +8,8 @@
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
+#include <libkern/OSCacheControl.h>   // sys_icache_invalidate
+#include <string.h>
 
 // ---------------------------------------------------------------------------
 // LOG: usar SEMPRE a funcao C THLog(...), NUNCA [TitanoxHook log:...].
@@ -19,6 +21,48 @@
 // Este era o motivo de o jogo fechar ao abrir o menu.
 // ---------------------------------------------------------------------------
 #define DGLOG(...) THLog(__VA_ARGS__)
+
+// ---------------------------------------------------------------------------
+// Acesso a memoria SEM o TotallyNotVM do Titanox.
+//
+// O TotallyNotVM::read/protect/write montam a mensagem MIG do mach_vm_* na mao
+// e chamam mach_msg com um reply port de mig_get_reply_port(). No iOS 26 isso
+// dispara EXC_GUARD (GUARD_TYPE_MACH_PORT / INVALID_OPTIONS) e mata o processo
+// - foi exatamente o crash observado ao abrir o menu (crash log: Thread 0 em
+// TotallyNotVM::read -> mach_msg). Como estamos no NOSSO processo, usamos as
+// APIs padrao: leitura por memcpy (paginas de codigo sao R-X, logo legiveis) e
+// escrita via vm_protect (funcao do sistema, nao dispara o guard) + memcpy.
+// ---------------------------------------------------------------------------
+static bool dgRead(uint64_t addr, void *buf, size_t n) {
+    if (addr == 0) return false;
+    memcpy(buf, (const void *)(uintptr_t)addr, n);   // R-X e legivel
+    return true;
+}
+
+static kern_return_t dgProtect(uint64_t addr, size_t n, vm_prot_t prot) {
+    mach_vm_address_t pg  = (mach_vm_address_t)addr & ~((mach_vm_address_t)vm_page_size - 1);
+    mach_vm_size_t    len = ((mach_vm_address_t)addr + n) - pg;
+    return vm_protect(mach_task_self(), (vm_address_t)pg, (vm_size_t)len, FALSE, prot);
+}
+
+static bool dgWrite(uint64_t addr, const void *data, size_t n) {
+    // 1) tornar a pagina gravavel. VM_PROT_COPY forca copia privada (COW),
+    //    necessario para pagina de codigo assinada.
+    kern_return_t kr = dgProtect(addr, n, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+    if (kr != KERN_SUCCESS) {
+        kr = dgProtect(addr, n, VM_PROT_READ | VM_PROT_WRITE);
+    }
+    if (kr != KERN_SUCCESS) {
+        DGLOG(@"[DG] vm_protect(RW) falhou kr=%d em 0x%llx", kr, (unsigned long long)addr);
+        return false;
+    }
+    // 2) escrever
+    memcpy((void *)(uintptr_t)addr, data, n);
+    // 3) devolver R-X e invalidar o cache de instrucoes
+    dgProtect(addr, n, VM_PROT_READ | VM_PROT_EXECUTE);
+    sys_icache_invalidate((void *)(uintptr_t)addr, n);
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Tabela de alvos.
@@ -153,13 +197,7 @@ static NSString *g_erro = nil;
         DGLOG(@"[DG] [%d/%d] lendo %s em 0x%llx (%zu bytes)",
               i + 1, (int)DG_TOTAL, a->nome, (unsigned long long)addr, a->tam);
 
-        BOOL leu = NO;
-        @try {
-            leu = [TitanoxHook readMemoryAt:addr buffer:atual size:a->tam];
-        } @catch (NSException *e) {
-            DGLOG(@"[DG] %s: excecao na leitura: %@", a->nome, e.reason);
-            leu = NO;
-        }
+        BOOL leu = dgRead((uint64_t)addr, atual, a->tam) ? YES : NO;
 
         if (!leu) {
             DGLOG(@"[DG] %s: leitura FALHOU em 0x%llx", a->nome, (unsigned long long)addr);
@@ -203,35 +241,20 @@ static NSString *g_erro = nil;
     if (g_ligada[f] == ligar) return YES;   // nada a fazer
 
     DgAlvo *a = &g_alvos[f];
-    mach_vm_address_t addr = (mach_vm_address_t)(g_base + a->rva);
+    uint64_t addr = g_base + a->rva;
     uint8_t *dados = ligar ? a->stub : a->original;
 
-    // Pagina de codigo e R-X. Para escrever, pedir RW. E AQUI que o iOS pode
-    // dizer nao em app sideloaded - por isso o retorno e conferido e logado.
-    kern_return_t kr = [TitanoxHook protectMemoryAt:addr
-                                               size:a->tam
-                                             setMax:NO
-                                         protection:(VM_PROT_READ | VM_PROT_WRITE)];
-    if (kr != KERN_SUCCESS) {
-        DGLOG(@"[DG] %s: protect(RW) falhou kr=%d", a->nome, kr);
-        g_erro = [NSString stringWithFormat:@"vm_protect recusado (kr=%d)", kr];
+    // Pagina de codigo e R-X. dgWrite pede RW (com VM_PROT_COPY), escreve e
+    // devolve R-X. E AQUI que o iOS pode dizer nao em app sideloaded - por isso
+    // o retorno e conferido e logado.
+    if (!dgWrite(addr, dados, a->tam)) {
+        g_erro = @"vm_protect/escrita recusada pelo iOS";
         return NO;
-    }
-
-    [TitanoxHook patchMemoryAtAddress:(void *)addr withPatch:dados size:a->tam];
-
-    // Devolver a protecao original. Se falhar nao e fatal, mas fica no log.
-    kern_return_t kr2 = [TitanoxHook protectMemoryAt:addr
-                                                size:a->tam
-                                              setMax:NO
-                                          protection:(VM_PROT_READ | VM_PROT_EXECUTE)];
-    if (kr2 != KERN_SUCCESS) {
-        DGLOG(@"[DG] %s: protect(RX) de volta falhou kr=%d", a->nome, kr2);
     }
 
     // NAO confiar na escrita: reler e comparar. Se nao bateu, o toggle nao valeu.
     uint8_t conferido[48] = {0};
-    if ([TitanoxHook readMemoryAt:addr buffer:conferido size:a->tam] &&
+    if (dgRead(addr, conferido, a->tam) &&
         memcmp(conferido, dados, a->tam) == 0) {
         g_ligada[f] = ligar;
         g_escritaOk = YES;
