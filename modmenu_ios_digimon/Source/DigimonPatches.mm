@@ -10,10 +10,11 @@
 // do template repassa um va_list e crasha com %s/%@).
 #define DGLOG(...) THLog(__VA_ARGS__)
 
-static uint64_t          g_base = 0;
-static volatile uint8_t *g_flag = NULL;   // aponta pro slack gravavel do __DATA
-static BOOL              g_ok   = NO;
-static NSString         *g_erro = nil;
+static uint64_t           g_base = 0;
+static volatile uint8_t  *g_flag = NULL;   // flag on/off (1 byte) no slack do __DATA
+static volatile uint32_t *g_mult = NULL;   // multiplicador (int) no slack do __DATA
+static BOOL               g_ok   = NO;
+static NSString          *g_erro = nil;
 
 @implementation DigimonPatches
 
@@ -31,12 +32,15 @@ static NSString         *g_erro = nil;
     // e memoria do nosso proprio processo, NAO passa por mach_vm_read/protect
     // (que disparam EXC_GUARD no iOS 26). Nao e pagina de codigo -> escrever ali
     // e permitido e nao dispara o code signing monitor.
-    g_flag = (volatile uint8_t *)(uintptr_t)(g_base + DG_FLAG_RVA);
+    g_flag = (volatile uint8_t  *)(uintptr_t)(g_base + DG_FLAG_RVA);
+    g_mult = (volatile uint32_t *)(uintptr_t)(g_base + DG_MULT_RVA);
 
-    uint8_t v = *g_flag;   // leitura de teste
+    uint8_t  v = *g_flag;   // leitura de teste
+    uint32_t m = *g_mult;
     g_ok = YES;
-    DGLOG(@"[DG] flag @0x%llx = %u (0 = dano LIGADO)",
-          (unsigned long long)(uintptr_t)g_flag, (unsigned)v);
+    DGLOG(@"[DG] flag @0x%llx = %u (0=ligado) | mult @0x%llx = %u (0=usa 1000)",
+          (unsigned long long)(uintptr_t)g_flag, (unsigned)v,
+          (unsigned long long)(uintptr_t)g_mult, (unsigned)m);
 }
 
 + (BOOL)valido { return g_ok; }
@@ -58,14 +62,33 @@ static NSString         *g_erro = nil;
     return ok;
 }
 
++ (int)danoMultiplicador {
+    if (!g_ok) return 1000;
+    uint32_t m = *g_mult;
+    return (m == 0) ? 1000 : (int)m;   // slot demand-zero vira 1000 (default do cave)
+}
+
++ (BOOL)definirMultiplicador:(int)m {
+    if (!g_ok) {
+        DGLOG(@"[DG] definirMultiplicador ignorado (inacessivel)");
+        return NO;
+    }
+    if (m < 1) m = 1;
+    *g_mult = (uint32_t)m;
+    __sync_synchronize();
+    BOOL ok = ((int)*g_mult == m);
+    DGLOG(@"[DG] definirMultiplicador -> %d %s", (int)*g_mult, ok ? "OK" : "FALHOU");
+    return ok;
+}
+
 + (NSString *)diagnostico {
     if (!g_ok) {
         return [NSString stringWithFormat:@"base 0x%llx | flag inacessivel%@",
                 (unsigned long long)g_base,
                 g_erro ? [@" | " stringByAppendingString:g_erro] : @""];
     }
-    return [NSString stringWithFormat:@"base 0x%llx | flag=%u | dano %@",
-            (unsigned long long)g_base, (unsigned)*g_flag,
+    return [NSString stringWithFormat:@"base 0x%llx | flag=%u | mult=%d | dano %@",
+            (unsigned long long)g_base, (unsigned)*g_flag, [DigimonPatches danoMultiplicador],
             (*g_flag == 0) ? @"LIGADO" : @"desligado"];
 }
 

@@ -24,7 +24,8 @@
 #include <cstdint>
 
 #define DG_IMAGE_NAME "UnityFramework"
-#define DG_FLAG_RVA   0x9743000ULL   // 1.2 (era 0x9727000 na 1.1.1)
+#define DG_FLAG_RVA   0x9743000ULL   // 1.2: flag on/off (1 byte)
+#define DG_MULT_RVA   0x9743010ULL   // 1.2: multiplicador do dano (int 4 bytes)
 
 @interface DigimonPatches : NSObject
 
@@ -41,7 +42,12 @@
 // Devolve NO se a base nao foi resolvida ou a releitura nao confirmou.
 + (BOOL)definirDano:(BOOL)ligar;
 
-// Diagnostico para o menu (base, flag, estado).
+// Multiplicador do dano do jogador (o cave le este int; 0 -> usa 1000). O modo
+// deus (inimigo -> 0) nao depende dele. Escrita em dado.
++ (int)danoMultiplicador;              // valor efetivo atual (0 no slot vira 1000)
++ (BOOL)definirMultiplicador:(int)m;   // escreve o int; devolve NO se inacessivel
+
+// Diagnostico para o menu (base, flag, mult, estado).
 + (NSString *)diagnostico;
 
 @end
