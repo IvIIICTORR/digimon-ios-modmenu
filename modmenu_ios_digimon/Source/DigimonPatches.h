@@ -1,68 +1,47 @@
 #pragma once
 // ============================================================================
-// Digimon iOS - liga/desliga dos patches em runtime
+// Digimon iOS - liga/desliga do DANO por FLAG em dado (sem escrever codigo)
 //
-// IDEIA CENTRAL
-// Os cheats JA existem como patch estatico dentro do IPA (aplicados offline por
-// patch_ios_digimon.py, e testados em jogo). Este arquivo nao cria cheat novo:
-// ele guarda os bytes ORIGINAIS de cada alvo e alterna entre
-//     bytes originais  = cheat DESLIGADO
-//     bytes do stub    = cheat LIGADO
-// escrevendo na memoria do proprio processo via Titanox (mach_vm_protect +
-// write). Sem Dobby, sem JIT, sem jailbreak.
+// POR QUE ASSIM
+// iOS 26 (code signing monitor) mata qualquer pagina de CODIGO modificada em
+// runtime (crash EXC_BAD_ACCESS "Invalid Page" - comprovado em teste). Entao o
+// toggle NAO reescreve codigo. O patcher offline (patch_ios_digimon.py) injeta
+// um stub condicional num code cave que LE uma flag de 1 byte no slack GRAVAVEL
+// do __DATA. Este dylib so ESCREVE essa flag - escrita em dado, permitida.
 //
-// POR QUE ESSE DESENHO E O SEGURO
-// O IPA e distribuido JA PATCHADO. Entao, se a escrita em runtime falhar (a
-// duvida real: iOS pode recusar tornar pagina de codigo escrevivel em app
-// sideloaded), o estado permanece o de hoje: cheats ligados e funcionando. A
-// falha degrada para o comportamento atual, nunca para "jogo quebrado".
+//   flag == 0  -> dano/god LIGADO   (padrao: o slack sobe zerado)
+//   flag != 0  -> dano/god DESLIGADO (roda o dano original do jogo)
 //
-// Fonte dos offsets e dos bytes: OFFSETS_DIGIMON_IOS.md (dump do proprio IPA).
-// Valem SOMENTE para UnityFramework de 162.117.056 bytes (v1.1.1 build 42).
+// As demais features (cadencia, nunca errar, velocidade 2x, bypass de anuncio)
+// sao patch estatico SEMPRE ligado - nao tem toggle.
+//
+// Estes valores TEM de casar com patch_ios_digimon.py:
+//   FUNC_GETTYPEDAMAGE = 0x3127250, CAVE_RVA = 0x08594040, FLAG_RVA = 0x9727000
+// Validos SOMENTE para o UnityFramework v1.1.1 build 42 (162.117.056 bytes).
 // ============================================================================
 
 #import <Foundation/Foundation.h>
 #include <cstdint>
-#include <cstddef>
 
-// Nome da imagem alvo dentro do processo (o binario IL2CPP do jogo).
 #define DG_IMAGE_NAME "UnityFramework"
-
-typedef enum {
-    DG_DANO_E_MODO_DEUS = 0,   // GetTypeDamage: aliado x1000 / inimigo 0
-    DG_CADENCIA_ATAQUE,        // GetAttackTime -> 0.1s
-    DG_NUNCA_ERRAR,            // CheckDamageEvade -> false
-    DG_VELOCIDADE_X1,          // SetGameSpeed: constante do estado X1
-    DG_VELOCIDADE_X2,          // SetGameSpeed: constante do estado X2
-    DG_BYPASS_ANUNCIO,         // PS_ADView b__0 -> b__3(0)
-    DG_TOTAL
-} DgFeature;
+#define DG_FLAG_RVA   0x9727000ULL
 
 @interface DigimonPatches : NSObject
 
-// Resolve a base do UnityFramework e confere, para cada alvo, se os bytes na
-// memoria batem com o stub OU com o original. Se nao baterem com nenhum dos
-// dois, o alvo e marcado como invalido e nunca sera escrito (protecao contra
-// versao diferente do jogo).
+// Resolve a base do UnityFramework e o endereco da flag. Le o estado inicial.
 + (void)inicializar;
 
-// Estado atual conhecido de cada feature.
-+ (BOOL)estaLigada:(DgFeature)f;
+// A base foi resolvida e a flag esta acessivel?
++ (BOOL)valido;
 
-// Escreve os bytes do stub (ligar) ou os originais (desligar).
-// Devolve NO se a escrita falhou - nesse caso o estado interno nao muda.
-+ (BOOL)definir:(DgFeature)f ligada:(BOOL)ligar;
+// Dano/God esta ligado agora? (flag == 0)
++ (BOOL)danoLigado;
 
-// Nome legivel, para a UI.
-+ (const char *)nome:(DgFeature)f;
+// Liga (flag=0) ou desliga (flag=1) o dano. Escrita em dado, sem tocar codigo.
+// Devolve NO se a base nao foi resolvida ou a releitura nao confirmou.
++ (BOOL)definirDano:(BOOL)ligar;
 
-// Este alvo passou a validacao de bytes?
-+ (BOOL)valida:(DgFeature)f;
-
-// Diagnostico para mostrar no menu (base, quantos alvos validos, erro de vm).
+// Diagnostico para o menu (base, flag, estado).
 + (NSString *)diagnostico;
-
-// A escrita em memoria de codigo funcionou pelo menos uma vez?
-+ (BOOL)escritaSuportada;
 
 @end

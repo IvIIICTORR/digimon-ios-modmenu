@@ -1,69 +1,35 @@
 // ============================================================================
 // Digimon iOS - conteudo do menu
 //
-// Cada checkbox chama DigimonPatches, que escreve na memoria os bytes do stub
-// (ligar) ou os originais (desligar). Ver Source/DigimonPatches.h.
+// Um unico toggle: DANO x1000 + MODO DEUS. Ele escreve uma flag de 1 byte na
+// memoria GRAVAVEL do jogo (slack do __DATA) - o stub condicional injetado no
+// binario (patch_ios_digimon.py) le essa flag e decide. NAO ha escrita de
+// codigo em runtime, entao nao ha o crash de code signing do iOS 26.
 //
-// OBJETIVO DESTA PRIMEIRA VERSAO: provar que o liga/desliga funciona em app
-// sideloaded, sem JIT. Por isso a aba DIAGNOSTICO mostra base, alvos validos e
-// o resultado real da escrita - se falhar, precisa aparecer o motivo, nao um
-// checkbox que se move sem efeito.
+// As demais features sao patch estatico SEMPRE ligado (sem toggle).
 // ============================================================================
 
 #include "Includes.h"
 #include "../Source/DigimonPatches.h"
 
-// Estado dos checkboxes. Comeca espelhando o que foi lido da memoria em
-// DigimonPatches::inicializar (o IPA e distribuido JA patchado, entao o normal
-// e comecar tudo ligado).
-static bool s_ligado[DG_TOTAL] = {false};
-static bool s_iniciado = false;
-static bool s_ultimaFalha = false;
+static bool s_dano   = true;
+static bool s_inic   = false;
+static bool s_falha  = false;
 
 static void SincronizarEstadoInicial()
 {
-    if (s_iniciado) return;
+    if (s_inic) return;
     [DigimonPatches inicializar];
-    for (int i = 0; i < DG_TOTAL; i++) {
-        s_ligado[i] = [DigimonPatches estaLigada:(DgFeature)i] ? true : false;
-    }
-    s_iniciado = true;
-}
-
-// Desenha um checkbox e aplica a mudanca. Se o alvo nao validou, mostra
-// desabilitado - melhor do que deixar o usuario clicar em algo inerte.
-static void FeatureCheckbox(DgFeature f)
-{
-    const char *nome = [DigimonPatches nome:f];
-    bool valido = [DigimonPatches valida:f] ? true : false;
-
-    if (!valido) {
-        // Alvo invalido: mostra como texto, nao como checkbox clicavel.
-        // (Nao usar ImGui::BeginDisabled/EndDisabled: nao existem na versao de
-        // ImGui que vem no template.)
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[x] %s", nome);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(nao validado)");
-        return;
-    }
-
-    if (ImGui::Checkbox(nome, &s_ligado[f])) {
-        BOOL ok = [DigimonPatches definir:f ligada:(s_ligado[f] ? YES : NO)];
-        if (!ok) {
-            // Reverter o visual: o checkbox nao pode mentir sobre o estado real.
-            s_ligado[f] = [DigimonPatches estaLigada:f] ? true : false;
-            s_ultimaFalha = true;
-        }
-    }
+    s_dano = [DigimonPatches danoLigado] ? true : false;
+    s_inic = true;
 }
 
 void UserMenu::DrawMenu()
 {
     SincronizarEstadoInicial();
 
-    ImVec2 WindowSize = ImVec2(340, 330);
+    ImVec2 WindowSize = ImVec2(330, 300);
     ImGui::SetNextWindowSize(WindowSize, ImGuiCond_Once);
-
     ImVec2 WindowPosition = ImVec2((SCREEN_WIDTH - WindowSize.x) / 2,
                                    (SCREEN_HEIGHT - WindowSize.y) / 2);
     ImGui::SetNextWindowPos(WindowPosition, ImGuiCond_Once);
@@ -72,86 +38,64 @@ void UserMenu::DrawMenu()
         ? ImGuiWindowFlags_NoCollapse
         : ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
 
-    // ImGui exige End() sempre, mesmo quando Begin() retorna false. Com -DNDEBUG
-    // o assert some e a pilha de janelas corrompe -> crash depois no Render().
-    bool janelaAberta = ImGui::Begin("Digimon Mod", NULL, WindowFlags);
-    if (janelaAberta)
+    // ImGui exige End() sempre, mesmo com Begin()==false (senao corrompe a pilha
+    // de janelas com -DNDEBUG).
+    bool aberta = ImGui::Begin("Digimon Mod", NULL, WindowFlags);
+    if (aberta)
     {
-        ImGuiWindow* CurrentWindow = ImGui::GetCurrentWindow();
-        KTempVars.MenuSize   = CurrentWindow->Size;
-        KTempVars.MenuOrigin = CurrentWindow->Pos;
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        KTempVars.MenuSize   = w->Size;
+        KTempVars.MenuOrigin = w->Pos;
 
         if (ImGui::CollapsingHeader("COMBATE", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            FeatureCheckbox(DG_DANO_E_MODO_DEUS);
-            FeatureCheckbox(DG_CADENCIA_ATAQUE);
-            FeatureCheckbox(DG_NUNCA_ERRAR);
-        }
-
-        if (ImGui::CollapsingHeader("VELOCIDADE", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            FeatureCheckbox(DG_VELOCIDADE_X1);
-            FeatureCheckbox(DG_VELOCIDADE_X2);
-        }
-
-        if (ImGui::CollapsingHeader("BYPASS", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            FeatureCheckbox(DG_BYPASS_ANUNCIO);
-            ImGui::TextDisabled("nao remove o limite diario");
+            bool valido = [DigimonPatches valido] ? true : false;
+            if (!valido) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "[x] Dano x1000 + Modo Deus");
+                ImGui::SameLine(); ImGui::TextDisabled("(flag inacessivel)");
+            } else if (ImGui::Checkbox("Dano x1000 + Modo Deus", &s_dano)) {
+                if (![DigimonPatches definirDano:(s_dano ? YES : NO)]) {
+                    s_dano = [DigimonPatches danoLigado] ? true : false;  // reverte
+                    s_falha = true;
+                }
+            }
         }
 
         ImGui::Separator();
+        if (ImGui::CollapsingHeader("SEMPRE LIGADOS (patch estatico)",
+                                    ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::BulletText("Cadencia de ataque (0.1s)");
+            ImGui::BulletText("Nunca errar");
+            ImGui::BulletText("Velocidade 2x (X1) / 5x no botao do jogo");
+            ImGui::BulletText("Recompensa sem assistir anuncio");
+            ImGui::TextDisabled("(estes nao tem liga/desliga)");
+        }
 
+        ImGui::Separator();
         if (ImGui::CollapsingHeader("DIAGNOSTICO"))
         {
             ImGui::TextWrapped("%s", [[DigimonPatches diagnostico] UTF8String]);
-            ImGui::Spacing();
-            if ([DigimonPatches escritaSuportada]) {
-                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                                   "escrita em runtime: FUNCIONA");
-            } else if (s_ultimaFalha) {
+            if (s_falha) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                   "escrita recusada: cheats ficam como estao");
-            } else {
-                ImGui::TextDisabled("mexa num toggle para testar a escrita");
+                                   "falha ao escrever a flag");
             }
-            ImGui::Spacing();
             ImGui::TextDisabled("log: Documents/TITANOX_LOGS.txt");
-
-            if (ImGui::Button("Ligar tudo")) {
-                for (int i = 0; i < DG_TOTAL; i++) {
-                    if (![DigimonPatches valida:(DgFeature)i]) continue;
-                    if ([DigimonPatches definir:(DgFeature)i ligada:YES])
-                        s_ligado[i] = true;
-                    else
-                        s_ultimaFalha = true;
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Desligar tudo")) {
-                for (int i = 0; i < DG_TOTAL; i++) {
-                    if (![DigimonPatches valida:(DgFeature)i]) continue;
-                    if ([DigimonPatches definir:(DgFeature)i ligada:NO])
-                        s_ligado[i] = false;
-                    else
-                        s_ultimaFalha = true;
-                }
-            }
         }
 
         ImGui::Spacing();
         ImGui::Checkbox("Mover menu", &KTempVars.MoveMenu);
     }
-    ImGui::End();   // sempre, pareado com o Begin acima
+    ImGui::End();
 }
 
 void UserMenu::RenderingMenu()
 {
-    // Sem ESP/overlay de desenho neste projeto: os cheats sao patches no
-    // binario, nao precisam de nada desenhado em tela.
+    // Sem ESP/overlay: os cheats sao patches no binario.
 }
 
-static char consoleBuffer[4096] = "";
+static char consoleBuffer[2048] = "";
 
 void UserMenu::ShowOutputTextbox()
 {
@@ -170,30 +114,20 @@ void UserMenu::AppendToOutput(const std::string& text)
 void UserMenu::ConsoleMenu()
 {
     if (!KTempVars.console) return;
-
     ImGuiWindowFlags WFlags = ImGuiWindowFlags_NoTitleBar |
                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-    ImVec2 WS = ImVec2(350, 300);
+    ImVec2 WS = ImVec2(340, 260);
     ImGui::SetNextWindowSize(WS, ImGuiCond_Once);
     ImVec2 WP = ImVec2((SCREEN_WIDTH - WS.x) / 2, (SCREEN_HEIGHT - WS.y) / 2);
     ImGui::SetNextWindowPos(WP, ImGuiCond_Once);
 
     ImGui::Begin("Console", nullptr, WFlags);
-
-    ImGuiWindow* ConsoleWindow = ImGui::GetCurrentWindow();
-    KTempVars.ConsoleSize   = ConsoleWindow->Size;
-    KTempVars.ConsoleOrigin = ConsoleWindow->Pos;
-
     ShowOutputTextbox();
-
     if (ImGui::Button("Diagnostico")) {
         AppendToOutput([[DigimonPatches diagnostico] UTF8String]);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Limpar")) { consoleBuffer[0] = '\0'; }
-    ImGui::SameLine();
     if (ImGui::Button("Fechar")) { KTempVars.console = false; }
-
     ImGui::End();
 }
 
