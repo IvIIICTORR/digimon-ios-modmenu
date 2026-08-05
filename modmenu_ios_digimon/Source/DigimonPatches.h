@@ -16,15 +16,15 @@
 // sao patch estatico SEMPRE ligado - nao tem toggle.
 //
 // Estes valores TEM de casar com patch_ios_digimon.py:
-//   FUNC_GETTYPEDAMAGE = 0x3127250, CAVE_RVA = 0x08594040, FLAG_RVA = 0x9727000
-// Validos SOMENTE para o UnityFramework v1.1.1 build 42 (162.117.056 bytes).
+//   FUNC_GETTYPEDAMAGE = 0x3123D88, CAVE_RVA = 0x085AC040, FLAG_RVA = 0x9743000
+// Validos SOMENTE para o UnityFramework v1.2 (162.235.136 bytes).
 // ============================================================================
 
 #import <Foundation/Foundation.h>
 #include <cstdint>
 
 #define DG_IMAGE_NAME "UnityFramework"
-#define DG_FLAG_RVA   0x9727000ULL
+#define DG_FLAG_RVA   0x9743000ULL   // 1.2 (era 0x9727000 na 1.1.1)
 
 @interface DigimonPatches : NSObject
 
