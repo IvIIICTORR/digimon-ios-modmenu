@@ -1,53 +1,56 @@
 #pragma once
 // ============================================================================
-// Digimon iOS - liga/desliga do DANO por FLAG em dado (sem escrever codigo)
+// Digimon iOS - liga/desliga de TODAS as features por FLAG em dado (iOS 26)
 //
-// POR QUE ASSIM
-// iOS 26 (code signing monitor) mata qualquer pagina de CODIGO modificada em
-// runtime (crash EXC_BAD_ACCESS "Invalid Page" - comprovado em teste). Entao o
-// toggle NAO reescreve codigo. O patcher offline (patch_ios_digimon.py) injeta
-// um stub condicional num code cave que LE uma flag de 1 byte no slack GRAVAVEL
-// do __DATA. Este dylib so ESCREVE essa flag - escrita em dado, permitida.
+// Nao reescreve codigo em runtime (iOS 26 mata pagina de codigo modificada). O
+// patcher offline injeta, para cada feature, um stub condicional num code cave
+// que LE uma flag de 1 byte no slack gravavel do __DATA. Este dylib so ESCREVE
+// essas flags (dado, permitido).
 //
-//   flag == 0  -> dano/god LIGADO   (padrao: o slack sobe zerado)
-//   flag != 0  -> dano/god DESLIGADO (roda o dano original do jogo)
+//   flag == 0  -> feature LIGADA   (slack sobe zerado = tudo ligado por padrao)
+//   flag != 0  -> feature DESLIGADA (roda o comportamento original do jogo)
 //
-// As demais features (cadencia, nunca errar, velocidade 2x, bypass de anuncio)
-// sao patch estatico SEMPRE ligado - nao tem toggle.
+// Alem das flags, o DANO tem um MULTIPLICADOR (int 4 bytes) que o stub le no
+// lugar do 1000 fixo. O modo deus (inimigo -> 0) NAO depende do multiplicador.
 //
-// Estes valores TEM de casar com patch_ios_digimon.py:
-//   FUNC_GETTYPEDAMAGE = 0x3123D88, CAVE_RVA = 0x085AC040, FLAG_RVA = 0x9743000
-// Validos SOMENTE para o UnityFramework v1.2 (162.235.136 bytes).
+// Enderecos TEM de casar com patch_ios_digimon.py. Validos SOMENTE para o
+// UnityFramework v1.2 (162.235.136 bytes).
 // ============================================================================
 
 #import <Foundation/Foundation.h>
 #include <cstdint>
 
 #define DG_IMAGE_NAME "UnityFramework"
-#define DG_FLAG_RVA   0x9743000ULL   // 1.2: flag on/off (1 byte)
-#define DG_MULT_RVA   0x9743010ULL   // 1.2: multiplicador do dano (int 4 bytes)
+
+// Flags (1 byte, 0=ligado) e multiplicador (int) no slack do __DATA - 1.2.
+#define DG_FLAG_DANO        0x9743000ULL
+#define DG_MULT_DANO        0x9743010ULL
+#define DG_FLAG_CADENCIA    0x9743020ULL
+#define DG_FLAG_EVADE       0x9743030ULL
+#define DG_FLAG_VELOCIDADE  0x9743040ULL
+#define DG_FLAG_ANUNCIO     0x9743050ULL
+
+typedef enum {
+    DGF_DANO = 0,
+    DGF_CADENCIA,
+    DGF_EVADE,
+    DGF_VELOCIDADE,
+    DGF_ANUNCIO,
+    DGF_TOTAL
+} DgFeat;
 
 @interface DigimonPatches : NSObject
 
-// Resolve a base do UnityFramework e o endereco da flag. Le o estado inicial.
-+ (void)inicializar;
++ (void)inicializar;              // resolve base e ponteiros das flags
++ (BOOL)valido;                   // base + flags acessiveis?
++ (const char *)nome:(DgFeat)f;   // rotulo p/ o menu
++ (BOOL)ligada:(DgFeat)f;         // flag == 0 ?
++ (BOOL)definir:(DgFeat)f ligada:(BOOL)on;   // escreve a flag (dado)
 
-// A base foi resolvida e a flag esta acessivel?
-+ (BOOL)valido;
+// Multiplicador do dano do jogador (0 no slot -> stub usa 1000).
++ (int)danoMultiplicador;
++ (BOOL)definirMultiplicador:(int)m;
 
-// Dano/God esta ligado agora? (flag == 0)
-+ (BOOL)danoLigado;
-
-// Liga (flag=0) ou desliga (flag=1) o dano. Escrita em dado, sem tocar codigo.
-// Devolve NO se a base nao foi resolvida ou a releitura nao confirmou.
-+ (BOOL)definirDano:(BOOL)ligar;
-
-// Multiplicador do dano do jogador (o cave le este int; 0 -> usa 1000). O modo
-// deus (inimigo -> 0) nao depende dele. Escrita em dado.
-+ (int)danoMultiplicador;              // valor efetivo atual (0 no slot vira 1000)
-+ (BOOL)definirMultiplicador:(int)m;   // escreve o int; devolve NO se inacessivel
-
-// Diagnostico para o menu (base, flag, mult, estado).
 + (NSString *)diagnostico;
 
 @end

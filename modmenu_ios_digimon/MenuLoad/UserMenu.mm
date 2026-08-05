@@ -12,7 +12,7 @@
 #include "Includes.h"
 #include "../Source/DigimonPatches.h"
 
-static bool s_dano   = true;
+static bool s_on[DGF_TOTAL] = {false};
 static bool s_inic   = false;
 static bool s_falha  = false;
 
@@ -20,7 +20,8 @@ static void SincronizarEstadoInicial()
 {
     if (s_inic) return;
     [DigimonPatches inicializar];
-    s_dano = [DigimonPatches danoLigado] ? true : false;
+    for (int i = 0; i < DGF_TOTAL; i++)
+        s_on[i] = [DigimonPatches ligada:(DgFeat)i] ? true : false;
     s_inic = true;
 }
 
@@ -47,48 +48,42 @@ void UserMenu::DrawMenu()
         KTempVars.MenuSize   = w->Size;
         KTempVars.MenuOrigin = w->Pos;
 
-        if (ImGui::CollapsingHeader("COMBATE", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("CHEATS (liga/desliga)", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            bool valido = [DigimonPatches valido] ? true : false;
-            if (!valido) {
+            if (![DigimonPatches valido]) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                   "[x] Dano + Modo Deus");
-                ImGui::SameLine(); ImGui::TextDisabled("(flag inacessivel)");
+                                   "flags inacessiveis (versao do jogo diferente?)");
             } else {
-                if (ImGui::Checkbox("Dano do jogador + Modo Deus (inimigo 0)", &s_dano)) {
-                    if (![DigimonPatches definirDano:(s_dano ? YES : NO)]) {
-                        s_dano = [DigimonPatches danoLigado] ? true : false;  // reverte
-                        s_falha = true;
+                for (int i = 0; i < DGF_TOTAL; i++) {
+                    const char *nome = [DigimonPatches nome:(DgFeat)i];
+                    if (ImGui::Checkbox(nome, &s_on[i])) {
+                        if (![DigimonPatches definir:(DgFeat)i ligada:(s_on[i] ? YES : NO)]) {
+                            s_on[i] = [DigimonPatches ligada:(DgFeat)i] ? true : false;
+                            s_falha = true;
+                        }
                     }
-                }
-
-                // Multiplicador do dano do jogador (o modo deus nao depende dele).
-                int atual = [DigimonPatches danoMultiplicador];
-                ImGui::TextDisabled("Multiplicador do meu dano (atual: x%d)", atual);
-                static const int presets[] = {2, 5, 10, 20, 1000, 9999};
-                for (int i = 0; i < 6; i++) {
-                    char lbl[16]; snprintf(lbl, sizeof(lbl), "x%d", presets[i]);
-                    bool ativo = (atual == presets[i]);
-                    if (ativo) ImGui::PushStyleColor(ImGuiCol_Button,
-                                                     ImVec4(0.20f, 0.55f, 0.25f, 1.0f));
-                    if (ImGui::Button(lbl, ImVec2(64, 0))) {
-                        if (![DigimonPatches definirMultiplicador:presets[i]]) s_falha = true;
+                    // Logo abaixo do DANO: presets do multiplicador.
+                    if (i == DGF_DANO) {
+                        int atual = [DigimonPatches danoMultiplicador];
+                        ImGui::Indent();
+                        ImGui::TextDisabled("Multiplicador do meu dano (atual: x%d)", atual);
+                        static const int presets[] = {2, 5, 10, 20, 1000, 9999};
+                        for (int k = 0; k < 6; k++) {
+                            char lbl[16]; snprintf(lbl, sizeof(lbl), "x%d", presets[k]);
+                            bool ativo = (atual == presets[k]);
+                            if (ativo) ImGui::PushStyleColor(ImGuiCol_Button,
+                                                             ImVec4(0.20f, 0.55f, 0.25f, 1.0f));
+                            if (ImGui::Button(lbl, ImVec2(60, 0))) {
+                                if (![DigimonPatches definirMultiplicador:presets[k]]) s_falha = true;
+                            }
+                            if (ativo) ImGui::PopStyleColor();
+                            if (k != 2 && k != 5) ImGui::SameLine();
+                        }
+                        ImGui::Unindent();
+                        ImGui::Spacing();
                     }
-                    if (ativo) ImGui::PopStyleColor();
-                    if (i != 2 && i != 5) ImGui::SameLine();  // 3 por linha
                 }
             }
-        }
-
-        ImGui::Separator();
-        if (ImGui::CollapsingHeader("SEMPRE LIGADOS (patch estatico)",
-                                    ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            ImGui::BulletText("Cadencia de ataque (0.1s)");
-            ImGui::BulletText("Nunca errar");
-            ImGui::BulletText("Velocidade 2x (X1) / 5x no botao do jogo");
-            ImGui::BulletText("Recompensa sem assistir anuncio");
-            ImGui::TextDisabled("(estes nao tem liga/desliga)");
         }
 
         ImGui::Separator();
