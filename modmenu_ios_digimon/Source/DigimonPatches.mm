@@ -15,7 +15,7 @@ static const char *k_nome[DGF_TOTAL] = {
     "Dano do jogador + Modo Deus (inimigo 0)",
     "Cadencia de ataque (0.1s)",
     "Nunca errar",
-    "Velocidade 2x (X1 padrao)",
+    "Velocidade 10x",
     "Recompensa sem assistir anuncio",
 };
 

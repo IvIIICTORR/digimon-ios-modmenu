@@ -67,17 +67,19 @@ void UserMenu::DrawMenu()
                         int atual = [DigimonPatches danoMultiplicador];
                         ImGui::Indent();
                         ImGui::TextDisabled("Multiplicador do meu dano (atual: x%d)", atual);
-                        static const int presets[] = {2, 5, 10, 20, 1000, 9999};
-                        for (int k = 0; k < 6; k++) {
+                        static const int presets[] = {2, 5, 10, 20, 1000, 9999, 9999999};
+                        const int nps = (int)(sizeof(presets)/sizeof(presets[0]));
+                        for (int k = 0; k < nps; k++) {
                             char lbl[16]; snprintf(lbl, sizeof(lbl), "x%d", presets[k]);
                             bool ativo = (atual == presets[k]);
                             if (ativo) ImGui::PushStyleColor(ImGuiCol_Button,
                                                              ImVec4(0.20f, 0.55f, 0.25f, 1.0f));
-                            if (ImGui::Button(lbl, ImVec2(60, 0))) {
+                            if (ImGui::Button(lbl, ImVec2(72, 0))) {
                                 if (![DigimonPatches definirMultiplicador:presets[k]]) s_falha = true;
                             }
                             if (ativo) ImGui::PopStyleColor();
-                            if (k != 2 && k != 5) ImGui::SameLine();
+                            // 3 por linha (quebra apos cada 3, exceto no ultimo)
+                            if (((k + 1) % 3) != 0 && k != nps - 1) ImGui::SameLine();
                         }
                         ImGui::Unindent();
                         ImGui::Spacing();
