@@ -14,7 +14,7 @@
 // lugar do 1000 fixo. O modo deus (inimigo -> 0) NAO depende do multiplicador.
 //
 // Enderecos TEM de casar com patch_ios_digimon.py. Validos SOMENTE para o
-// UnityFramework v1.2 (162.235.136 bytes).
+// UnityFramework v1.2.3 (162.252.112 bytes).
 // ============================================================================
 
 #import <Foundation/Foundation.h>
@@ -22,13 +22,13 @@
 
 #define DG_IMAGE_NAME "UnityFramework"
 
-// Flags (1 byte, 0=ligado) e multiplicador (int) no slack do __DATA - 1.2.
-#define DG_FLAG_DANO        0x9743000ULL
-#define DG_MULT_DANO        0x9743010ULL
-#define DG_FLAG_CADENCIA    0x9743020ULL
-#define DG_FLAG_EVADE       0x9743030ULL
-#define DG_FLAG_VELOCIDADE  0x9743040ULL
-#define DG_FLAG_ANUNCIO     0x9743050ULL
+// Flags (1 byte, 0=ligado) e multiplicador (int) no slack do __DATA - 1.2.3.
+#define DG_FLAG_DANO        0x9747000ULL
+#define DG_MULT_DANO        0x9747010ULL
+#define DG_FLAG_CADENCIA    0x9747020ULL
+#define DG_FLAG_EVADE       0x9747030ULL
+#define DG_FLAG_VELOCIDADE  0x9747040ULL
+#define DG_FLAG_ANUNCIO     0x9747050ULL
 
 typedef enum {
     DGF_DANO = 0,
